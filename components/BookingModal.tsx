@@ -48,12 +48,59 @@ interface BookingModalProps {
   onClose: () => void;
 }
 
+// --- Validation helpers ---
+type ValidationErrors = Partial<Record<keyof BookingFormData, string>>;
+type TouchedFields = Partial<Record<keyof BookingFormData, boolean>>;
+
+function validateEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+function validatePhone(phone: string) {
+  // Allow international formats: +1 (555) 000-0000 / +44 7911 123456 / 9876543210
+  return /^[\+]?[\d\s\-\(\)]{7,20}$/.test(phone.trim());
+}
+
+function getFieldErrors(data: BookingFormData): ValidationErrors {
+  const errors: ValidationErrors = {};
+
+  if (!data.firstName.trim()) errors.firstName = "First name is required.";
+  if (!data.lastName.trim()) errors.lastName = "Last name is required.";
+
+  if (!data.email.trim()) {
+    errors.email = "Email address is required.";
+  } else if (!validateEmail(data.email)) {
+    errors.email = "Please enter a valid email address.";
+  }
+
+  if (!data.phone.trim()) {
+    errors.phone = "Phone number is required.";
+  } else if (!validatePhone(data.phone)) {
+    errors.phone = "Please enter a valid phone number.";
+  }
+
+  if (!data.departure.trim()) errors.departure = "Departure city or airport is required.";
+  if (!data.destination.trim()) errors.destination = "Destination city or airport is required.";
+  if (!data.departureDate) errors.departureDate = "Departure date is required.";
+  if (data.tripType === "round-trip" && !data.returnDate)
+    errors.returnDate = "Return date is required for round trips.";
+
+  return errors;
+}
+
 export function BookingModal({ isOpen, onClose }: BookingModalProps) {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<BookingFormData>(initialFormData);
+  const [touched, setTouched] = useState<TouchedFields>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
+
+  const allErrors = getFieldErrors(formData);
+
+  // Returns the error for a field only if it has been touched
+  const fieldError = (name: keyof BookingFormData) =>
+    touched[name] ? allErrors[name] : undefined;
 
   // Lock body scroll when modal is open
   useEffect(() => {
@@ -73,6 +120,7 @@ export function BookingModal({ isOpen, onClose }: BookingModalProps) {
       setTimeout(() => {
         setStep(1);
         setFormData(initialFormData);
+        setTouched({});
         setSubmitStatus("idle");
         setErrorMessage("");
         setIsSubmitting(false);
@@ -87,23 +135,29 @@ export function BookingModal({ isOpen, onClose }: BookingModalProps) {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleBlur = (name: keyof BookingFormData) => {
+    setTouched((prev) => ({ ...prev, [name]: true }));
+  };
+
   const handleTripTypeChange = (type: "one-way" | "round-trip") => {
     setFormData((prev) => ({ ...prev, tripType: type }));
   };
 
-  const isStep1Valid = () =>
-    formData.firstName && formData.lastName && formData.email && formData.phone;
+  const step1Fields: (keyof BookingFormData)[] = ["firstName", "lastName", "email", "phone"];
+  const step2Fields: (keyof BookingFormData)[] = ["departure", "destination", "departureDate", ...(formData.tripType === "round-trip" ? ["returnDate" as const] : [])];
 
-  const isStep2Valid = () =>
-    formData.departure &&
-    formData.destination &&
-    formData.departureDate &&
-    formData.passengers &&
-    (formData.tripType === "one-way" || formData.returnDate);
+  const isStep1Valid = () => step1Fields.every((f) => !allErrors[f]);
+  const isStep2Valid = () => step2Fields.every((f) => !allErrors[f]);
 
   const handleNext = () => {
-    if (step === 1 && isStep1Valid()) setStep(2);
-    else if (step === 2 && isStep2Valid()) setStep(3);
+    if (step === 1) {
+      // Touch all step-1 fields to reveal errors
+      setTouched((prev) => ({ ...prev, ...Object.fromEntries(step1Fields.map((f) => [f, true])) }));
+      if (isStep1Valid()) setStep(2);
+    } else if (step === 2) {
+      setTouched((prev) => ({ ...prev, ...Object.fromEntries(step2Fields.map((f) => [f, true])) }));
+      if (isStep2Valid()) setStep(3);
+    }
   };
 
   const handleBack = () => {
@@ -346,6 +400,8 @@ export function BookingModal({ isOpen, onClose }: BookingModalProps) {
                               placeholder="James"
                               value={formData.firstName}
                               onChange={handleChange}
+                              onBlur={() => handleBlur("firstName")}
+                              error={fieldError("firstName")}
                               required
                             />
                             <FormField
@@ -356,6 +412,8 @@ export function BookingModal({ isOpen, onClose }: BookingModalProps) {
                               placeholder="Harrison"
                               value={formData.lastName}
                               onChange={handleChange}
+                              onBlur={() => handleBlur("lastName")}
+                              error={fieldError("lastName")}
                               required
                             />
                           </div>
@@ -367,6 +425,8 @@ export function BookingModal({ isOpen, onClose }: BookingModalProps) {
                             placeholder="james@example.com"
                             value={formData.email}
                             onChange={handleChange}
+                            onBlur={() => handleBlur("email")}
+                            error={fieldError("email")}
                             required
                           />
                           <FormField
@@ -377,6 +437,8 @@ export function BookingModal({ isOpen, onClose }: BookingModalProps) {
                             placeholder="+1 (555) 000-0000"
                             value={formData.phone}
                             onChange={handleChange}
+                            onBlur={() => handleBlur("phone")}
+                            error={fieldError("phone")}
                             required
                           />
                         </motion.div>
@@ -437,6 +499,8 @@ export function BookingModal({ isOpen, onClose }: BookingModalProps) {
                               placeholder="New York (JFK)"
                               value={formData.departure}
                               onChange={handleChange}
+                              onBlur={() => handleBlur("departure")}
+                              error={fieldError("departure")}
                               required
                             />
                             <FormField
@@ -447,6 +511,8 @@ export function BookingModal({ isOpen, onClose }: BookingModalProps) {
                               placeholder="London (LHR)"
                               value={formData.destination}
                               onChange={handleChange}
+                              onBlur={() => handleBlur("destination")}
+                              error={fieldError("destination")}
                               required
                             />
                           </div>
@@ -459,6 +525,8 @@ export function BookingModal({ isOpen, onClose }: BookingModalProps) {
                               type="date"
                               value={formData.departureDate}
                               onChange={handleChange}
+                              onBlur={() => handleBlur("departureDate")}
+                              error={fieldError("departureDate")}
                               min={today}
                               required
                             />
@@ -470,6 +538,8 @@ export function BookingModal({ isOpen, onClose }: BookingModalProps) {
                                 type="date"
                                 value={formData.returnDate}
                                 onChange={handleChange}
+                                onBlur={() => handleBlur("returnDate")}
+                                error={fieldError("returnDate")}
                                 min={formData.departureDate || today}
                                 required
                               />
@@ -747,11 +817,14 @@ interface FormFieldProps {
   placeholder?: string;
   value: string;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onBlur?: () => void;
   required?: boolean;
   min?: string;
+  error?: string;
 }
 
-function FormField({ label, id, name, type, placeholder, value, onChange, required, min }: FormFieldProps) {
+function FormField({ label, id, name, type, placeholder, value, onChange, onBlur, required, min, error }: FormFieldProps) {
+  const hasError = Boolean(error);
   return (
     <div>
       <label
@@ -777,23 +850,40 @@ function FormField({ label, id, name, type, placeholder, value, onChange, requir
         min={min}
         className="w-full rounded-lg px-4 py-3.5 text-[15px] outline-none transition-all duration-300"
         style={{
-          background: "rgba(255,255,255,0.05)",
-          border: "1px solid rgba(255,255,255,0.12)",
+          background: hasError ? "rgba(255,80,80,0.05)" : "rgba(255,255,255,0.05)",
+          border: hasError ? "1px solid rgba(255,90,90,0.45)" : "1px solid rgba(255,255,255,0.12)",
           color: "rgba(245,245,247,0.92)",
           colorScheme: "dark",
           letterSpacing: "0.01em",
         }}
         onFocus={(e) => {
-          e.currentTarget.style.borderColor = "rgba(212,175,112,0.5)";
-          e.currentTarget.style.background = "rgba(255,255,255,0.08)";
-          e.currentTarget.style.boxShadow = "0 0 0 3px rgba(212,175,112,0.06)";
+          if (!hasError) {
+            e.currentTarget.style.borderColor = "rgba(212,175,112,0.5)";
+            e.currentTarget.style.background = "rgba(255,255,255,0.08)";
+            e.currentTarget.style.boxShadow = "0 0 0 3px rgba(212,175,112,0.06)";
+          } else {
+            e.currentTarget.style.boxShadow = "0 0 0 3px rgba(255,80,80,0.08)";
+          }
         }}
         onBlur={(e) => {
-          e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)";
-          e.currentTarget.style.background = "rgba(255,255,255,0.05)";
+          e.currentTarget.style.borderColor = hasError ? "rgba(255,90,90,0.45)" : "rgba(255,255,255,0.12)";
+          e.currentTarget.style.background = hasError ? "rgba(255,80,80,0.05)" : "rgba(255,255,255,0.05)";
           e.currentTarget.style.boxShadow = "none";
+          onBlur?.();
         }}
       />
+      {hasError && (
+        <motion.p
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.2 }}
+          className="mt-1.5 text-[11px] tracking-wide"
+          style={{ color: "rgba(255,100,100,0.85)" }}
+        >
+          {error}
+        </motion.p>
+      )}
     </div>
   );
 }
